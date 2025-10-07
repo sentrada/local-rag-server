@@ -6,7 +6,7 @@ param(
     [string]$ProjectPath = "/app/data/projects/AdvancedDatabaseExplorer",
     
     [Parameter(Mandatory=$false)]
-    [string[]]$FileExtensions = @(".py", ".cs", ".csproj", ".sln"),
+    [string[]]$FileExtensions = @(".py", ".ps1", ".md", ".ts", ".js", ".tsx", ".cs", ".csproj", ".sln"),
     
     [Parameter(Mandatory=$false)]
     [switch]$ForceReindex = $false
