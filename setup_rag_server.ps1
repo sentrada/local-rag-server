@@ -1,6 +1,6 @@
 # setup_rag_server.ps1
 param(
-    [string]$RepoUrl = "https://github.com/your-org/local-rag-server.git",
+    [string]$RepoUrl = "https://github.com/sentrada/local-rag-server.git",
     [string]$TargetDir = "$PWD\local-rag-server"
 )
 
