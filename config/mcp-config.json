@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "local-rag": {
+      "command": "curl",
+      "args": [
+        "-X", "POST",
+        "http://localhost:8000/query",
+        "-H", "Content-Type: application/json",
+        "-d", "{\"query\": \"{{prompt}}\", \"max_results\": 5}"
+      ],
+      "env": {},
+      "description": "Local RAG Server for enhanced code context"
+    }
+  }
+}

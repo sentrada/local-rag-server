@@ -1,0 +1,57 @@
+version: '3.9'
+
+services:
+  rag-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: local-rag-server
+    ports:
+      - "8000:8000"
+    volumes:
+      # Source code for development (hot-reload)
+      - ./src:/app/src
+      # Current project for testing (read-write for file watcher)
+      - g:/Docker/local-rag-server/:/app/data/projects/Local-Rag-Server
+      # AdvancedDatabaseExplorer (Python to C# migration)
+      - G:/Sources/Local/AdvancedDatabaseExplorer:/app/data/projects/AdvancedDatabaseExplorer:ro      
+      # WSL projekt mapping (additional projects)
+      - ${PROJECT_PATH:-/mnt/c/Users/YourUser/Projects}:/app/data/projects/external:ro
+      # Persistent ChromaDB
+      - chroma-data:/app/data/chroma_db
+      - ./config:/app/config:ro
+      - ./logs:/app/logs
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - MAX_CONTEXT_TOKENS=${MAX_CONTEXT_TOKENS:-4000}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-paraphrase-multilingual-MiniLM-L12-v2}
+      - VECTOR_DB_PATH=/app/data/chroma_db
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - rag-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: rag-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    networks:
+      - rag-network
+
+volumes:
+  chroma-data:
+    driver: local
+  redis-data:
+    driver: local
+
+networks:
+  rag-network:
+    driver: bridge
