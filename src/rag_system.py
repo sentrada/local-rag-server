@@ -230,17 +230,18 @@ class LocalRAGSystem:
             return ""
     
     def _save_metadata(self):
-        """Save indexed files metadata to disk"""
+        """Save indexed files metadata to disk, including embedding model"""
         try:
             metadata = {
                 "indexed_files": self._indexed_files,
                 "total_chunks": self._total_chunks,
-                "project_root": str(self.project_root)
+                "project_root": str(self.project_root),
+                "embedding_model": self.embedding_model
             }
             self._metadata_file.parent.mkdir(parents=True, exist_ok=True)
             with open(self._metadata_file, 'w') as f:
                 json.dump(metadata, f, indent=2)
-            logger.info(f"Saved metadata for {len(self._indexed_files)} files")
+            logger.info(f"Saved metadata for {len(self._indexed_files)} files (model: {self.embedding_model})")
         except Exception as e:
             logger.error(f"Error saving metadata: {e}")
     

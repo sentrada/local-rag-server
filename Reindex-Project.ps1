@@ -4,10 +4,13 @@
 param(
     [Parameter(Mandatory=$false)]
     [string]$ProjectPath = "/app/data/projects/AdvancedDatabaseExplorer",
-    
+
     [Parameter(Mandatory=$false)]
     [string[]]$FileExtensions = @(".py", ".ps1", ".md", ".ts", ".js", ".tsx", ".cs", ".csproj", ".sln"),
-    
+
+    [Parameter(Mandatory=$false)]
+    [string]$Model = "all-MiniLM-L6-v2",
+
     [Parameter(Mandatory=$false)]
     [switch]$ForceReindex = $false
 )
@@ -29,6 +32,7 @@ Write-Host ""
 Write-Host "Settings:" -ForegroundColor $yellow
 Write-Host "  Project: $ProjectPath" -ForegroundColor $white
 Write-Host "  File types: $($FileExtensions -join ', ')" -ForegroundColor $white
+Write-Host "  Embedding model: $Model" -ForegroundColor $white
 Write-Host "  Force reindex: $ForceReindex" -ForegroundColor $white
 Write-Host ""
 
@@ -45,6 +49,7 @@ Write-Host "`nStarting indexing..." -ForegroundColor $cyan
 $body = @{
     project_path = $ProjectPath
     file_extensions = $FileExtensions
+    model = $Model
     force_reindex = $ForceReindex.IsPresent
 } | ConvertTo-Json
 
@@ -61,6 +66,9 @@ try {
     Write-Host "Status: $($response.status)" -ForegroundColor $white
     Write-Host "Project: $($response.project_path)" -ForegroundColor $white
     Write-Host "File types: $($response.file_extensions -join ', ')" -ForegroundColor $white
+    if ($response.PSObject.Properties.Name -contains 'embedding_model') {
+        Write-Host "Embedding model: $($response.embedding_model)" -ForegroundColor $white
+    }
     Write-Host ""
     Write-Host "⏳ Indexing is running in the background..." -ForegroundColor $yellow
     Write-Host "This may take 30-60 seconds for medium projects." -ForegroundColor $yellow

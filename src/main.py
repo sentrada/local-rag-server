@@ -4,7 +4,7 @@ import json
 import threading
 import time
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Dict
 import logging
 from contextlib import asynccontextmanager
 
@@ -47,8 +47,18 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+# Embedding model management
+AVAILABLE_MODELS = [
+    "all-MiniLM-L6-v2",
+    "paraphrase-multilingual-MiniLM-L12-v2",
+    "paraphrase-multilingual-mpnet-base-v2",
+    "intfloat/multilingual-e5-large"
+]
+
 # Multi-project support: Dictionary of project_path -> RAGSystem
-rag_systems: dict[str, LocalRAGSystem] = {}
+rag_systems: Dict[str, LocalRAGSystem] = {}
+project_models: Dict[str, str] = {}  # project_path -> embedding_model
 current_project: Optional[str] = None
 
 file_watcher_manager = FileWatcherManager()
@@ -75,33 +85,26 @@ def load_existing_projects():
             with open(metadata_file, 'r') as f:
                 metadata = json.load(f)
                 project_root = metadata.get("project_root")
-                
+                embedding_model = metadata.get("embedding_model", settings.embedding_model)
                 if not project_root:
                     continue
-                
                 project_path = Path(project_root)
                 if not project_path.exists():
                     logger.warning(f"Project path no longer exists: {project_root}")
                     continue
-                
-                # Create RAG system for this project
                 logger.info(f"Loading project: {project_root}")
                 rag_system = LocalRAGSystem(
                     project_root=project_root,
                     vector_db_path=settings.vector_db_path,
-                    embedding_model=settings.embedding_model,
+                    embedding_model=embedding_model,
                     redis_url=settings.redis_url,
                     max_context_tokens=settings.max_context_tokens
                 )
-                
                 rag_systems[project_root] = rag_system
-                
-                # Set as current if it's the first one
+                project_models[project_root] = embedding_model
                 if current_project is None:
                     current_project = project_root
-                
-                logger.info(f"✅ Loaded project: {project_root} ({len(rag_system._indexed_files)} files)")
-                
+                logger.info(f"✅ Loaded project: {project_root} ({len(rag_system._indexed_files)} files, model: {embedding_model})")
         except Exception as e:
             logger.error(f"Error loading project from {metadata_file}: {e}", exc_info=True)
     
@@ -162,6 +165,7 @@ app.add_middleware(
 class IndexRequest(BaseModel):
     project_path: str = Field(..., description="Project path (Windows or WSL)")
     file_extensions: Optional[List[str]] = Field(default=[".py", ".js", ".ts", ".java", ".cs", ".cpp", ".h", ".go", ".rs", ".jsx", ".tsx", ".vue"])
+    model: Optional[str] = Field(default=None, description="Embedding model to use")
     force_reindex: bool = Field(default=False)
 
 class QueryRequest(BaseModel):
@@ -198,21 +202,20 @@ async def index_project(request: IndexRequest, background_tasks: BackgroundTasks
     try:
         wsl_path = convert_windows_path_to_wsl(request.project_path)
         logger.info(f"Indexing project: {wsl_path}")
-        
         if not validate_project_path(wsl_path):
             raise HTTPException(status_code=400, detail=f"Invalid path: {wsl_path}")
-        
+        # Determine embedding model
+        embedding_model = request.model or project_models.get(wsl_path) or settings.embedding_model
         # Create or update RAG system for this project
         rag_system = LocalRAGSystem(
             project_root=wsl_path,
             vector_db_path=settings.vector_db_path,
-            embedding_model=settings.embedding_model,
+            embedding_model=embedding_model,
             redis_url=settings.redis_url
         )
-        
         rag_systems[wsl_path] = rag_system
+        project_models[wsl_path] = embedding_model
         current_project = wsl_path  # Set as current project
-
         # Start file watcher if enabled
         logger.info(f"File watcher enabled: {settings.file_watcher_enabled}")
         if settings.file_watcher_enabled:
@@ -224,21 +227,19 @@ async def index_project(request: IndexRequest, background_tasks: BackgroundTasks
                 file_extensions=set(request.file_extensions) if request.file_extensions else None
             )
             logger.info(f"File watcher started for: {wsl_path}")
-
         background_tasks.add_task(
             rag_system.index_project,
             file_extensions=request.file_extensions,
             force_reindex=request.force_reindex
         )
-
         return {
             "status": "indexing_started",
             "message": f"Project indexing started: {wsl_path}",
             "project_path": wsl_path,
             "file_extensions": request.file_extensions,
+            "embedding_model": embedding_model,
             "total_projects": len(rag_systems)
         }
-        
     except Exception as e:
         logger.error(f"Indexing error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Indexing failed: {str(e)}")
@@ -303,6 +304,86 @@ async def query_with_context(request: QueryRequest):
         logger.error(f"Query error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")
 
+@app.get("/models")
+async def get_models():
+    """List available embedding models"""
+    return AVAILABLE_MODELS
+
+@app.get("/projects/model")
+async def get_project_model(project_path: str):
+    """Get embedding model for a project (query param)"""
+    wsl_path = convert_windows_path_to_wsl(project_path)
+    model = project_models.get(wsl_path) or settings.embedding_model
+    return {"project_path": wsl_path, "embedding_model": model}
+
+@app.post("/projects/model/change")
+async def change_project_model(project_path: str, body: Dict):
+    """Change embedding model for a project (query param)"""
+    wsl_path = convert_windows_path_to_wsl(project_path)
+    model = body.get("model")
+    auto_reindex = body.get("auto_reindex", False)
+    if model not in AVAILABLE_MODELS:
+        raise HTTPException(status_code=400, detail=f"Model not available: {model}")
+    # Remove old index (delete vector store, clear cache)
+    if wsl_path in rag_systems:
+        rag_systems[wsl_path].clear_cache()
+        del rag_systems[wsl_path]
+    project_models[wsl_path] = model
+    # Optionally start reindex
+    reindex_started = False
+    if auto_reindex:
+        rag_system = LocalRAGSystem(
+            project_root=wsl_path,
+            vector_db_path=settings.vector_db_path,
+            embedding_model=model,
+            redis_url=settings.redis_url
+        )
+        rag_systems[wsl_path] = rag_system
+        reindex_started = True
+    return {
+        "status": "ok",
+        "project_path": wsl_path,
+        "embedding_model": model,
+        "reindex_started": reindex_started
+    }
+
+# Keep path param versions for backwards compatibility
+@app.get("/projects/{project_path}/model")
+async def get_project_model_path(project_path: str):
+    wsl_path = convert_windows_path_to_wsl(project_path)
+    model = project_models.get(wsl_path) or settings.embedding_model
+    return {"project_path": wsl_path, "embedding_model": model}
+
+@app.post("/projects/{project_path}/model")
+async def set_project_model_path(project_path: str, body: Dict):
+    wsl_path = convert_windows_path_to_wsl(project_path)
+    model = body.get("model")
+    auto_reindex = body.get("auto_reindex", False)
+    if model not in AVAILABLE_MODELS:
+        raise HTTPException(status_code=400, detail=f"Model not available: {model}")
+    # Remove old index (delete vector store, clear cache)
+    if wsl_path in rag_systems:
+        rag_systems[wsl_path].clear_cache()
+        del rag_systems[wsl_path]
+    project_models[wsl_path] = model
+    # Optionally start reindex
+    reindex_started = False
+    if auto_reindex:
+        rag_system = LocalRAGSystem(
+            project_root=wsl_path,
+            vector_db_path=settings.vector_db_path,
+            embedding_model=model,
+            redis_url=settings.redis_url
+        )
+        rag_systems[wsl_path] = rag_system
+        reindex_started = True
+    return {
+        "status": "ok",
+        "project_path": wsl_path,
+        "embedding_model": model,
+        "reindex_started": reindex_started
+    }
+
 @app.get("/stats")
 async def get_statistics(project_path: Optional[str] = None):
     """Get statistics for a specific project or current project"""
@@ -321,13 +402,13 @@ async def get_statistics(project_path: Optional[str] = None):
         target_project = current_project or list(rag_systems.keys())[0]
     
     rag_system = rag_systems[target_project]
-    
+    model = project_models.get(target_project) or settings.embedding_model
     return {
         "project_root": str(rag_system.project_root),
         "indexed_files": rag_system.get_indexed_file_count(),
         "total_chunks": rag_system.get_total_chunk_count(),
         "vector_db_size": rag_system.get_vector_db_size(),
-        "embedding_model": settings.embedding_model,
+        "embedding_model": model,
         "is_current": target_project == current_project,
         "all_projects": list(rag_systems.keys())
     }

@@ -1,13 +1,46 @@
-const dummyProjects = [
-	{ id: 'proj1', name: 'Projekt 1', description: 'Demo projekt 1', files: 12 },
-	{ id: 'proj2', name: 'Projekt 2', description: 'Demo projekt 2', files: 8 },
-];
+import { useState, useEffect } from 'react';
+import { listProjects, switchProject, type Project } from '../services/projectService';
 
 export const useProjects = () => {
-	// In real app, this would fetch from API
+	const [projects, setProjects] = useState<Project[]>([]);
+	const [currentProject, setCurrentProject] = useState<string | null>(null);
+	const [loading, setLoading] = useState(true);
+	const [error, setError] = useState<string | null>(null);
+
+	const fetchProjects = async () => {
+		try {
+			setLoading(true);
+			setError(null);
+			const data = await listProjects();
+			setProjects(data.projects);
+			setCurrentProject(data.current_project);
+		} catch (err: any) {
+			setError(err.message || 'Failed to load projects');
+		} finally {
+			setLoading(false);
+		}
+	};
+
+	const selectProject = async (projectPath: string) => {
+		try {
+			await switchProject(projectPath);
+			setCurrentProject(projectPath);
+			await fetchProjects(); // Refresh list
+		} catch (err: any) {
+			setError(err.message || 'Failed to switch project');
+		}
+	};
+
+	useEffect(() => {
+		fetchProjects();
+	}, []);
+
 	return {
-		projects: dummyProjects,
-		loading: false,
-		error: null,
+		projects,
+		currentProject,
+		loading,
+		error,
+		refetch: fetchProjects,
+		selectProject,
 	};
 };

@@ -11,31 +11,57 @@ Egy helyi RAG (Retrieval-Augmented Generation) szerver, amely kiterjeszti a GitH
 - 🎯 **Token optimalizálás** - Automatikus kontextus optimalizálás a token limithez
 - 🐳 **Docker support** - Egyszerű telepítés és használat
 - 💾 **Perzisztens index** - Az indexelés megmarad konténer újraindítás után (nincs időkorlát!)
+- 🎨 **Multi-project support** - Több projekt egyidejű kezelése
+- 🤖 **Választható embedding modellek** - 4 különböző modell közül választhatsz projektenként
+- 🌐 **Web UI** - Modern React-alapú felület projektek kezelésére (✨ ÚJ!)
 
 ## Gyors Indítás
 
-### 1. Környezet beállítása
+### 1. Backend indítása
 
 ```powershell
-# Projekt könyvtár beállítása a .env fájlban
-# Másold át és szerkeszd:
-Copy-Item .env.example .env
-
-# Szerkeszd a PROJECT_PATH értékét a .env fájlban
-# Példa: PROJECT_PATH=/mnt/c/Users/YourName/Projects
-```
-
-### 2. Docker konténerek indítása
-
-```powershell
+# Docker konténerek indítása
 docker-compose up -d
-```
 
-### 3. Egészség ellenőrzés
-
-```powershell
+# Egészség ellenőrzés
 curl http://localhost:8000/health
 ```
+
+### 2. Web UI indítása (ÚJ!)
+
+```powershell
+# UI könyvtárba lépés
+cd ui
+
+# Függőségek telepítése (első alkalommal)
+npm install
+
+# Fejlesztői szerver indítása
+npm run dev
+```
+
+Majd nyisd meg a böngészőben: **http://localhost:5173**
+
+### 3. Használat Web UI-ból
+
+1. Kattints az "**Új projekt indexelése**" gombra
+2. Add meg a projekt útvonalát (pl. `C:\Projects\myapp`)
+3. Várd meg az indexelés befejezését
+4. Használd a keresőt kontextus lekérdezéshez!
+
+## Web UI Funkciók
+
+A teljesen integrált Web UI a következőket teszi lehetővé:
+
+- 📋 **Projektek kezelése** - Lista, váltás, statisztikák
+- 🔍 **Keresés** - Valós idejű RAG keresés vizuális eredményekkel
+- ⚙️ **Beállítások** - Embedding model váltás projektenként
+- 📊 **Statisztikák** - Indexelt fájlok, chunks, token számok
+- 🎯 **Optimalizált prompt** - Látható kontextus előnézet
+
+### UI Dokumentáció
+- 📖 [UI Integration Guide](ui/UI_INTEGRATION.md) - Részletes integráció dokumentáció
+- 📝 [Integration Changelog](ui/INTEGRATION_CHANGELOG.md) - Változások listája
 
 ## API Használat
 
@@ -46,10 +72,36 @@ curl http://localhost:8000/health
 $body = @{
     project_path = "C:\Users\YourName\YourProject"
     file_extensions = @(".py", ".js", ".ts", ".jsx", ".tsx")
+    model = "paraphrase-multilingual-MiniLM-L12-v2"  # Opcionális, választható embedding modell
     force_reindex = $false
 } | ConvertTo-Json
 
 Invoke-RestMethod -Method Post -Uri "http://localhost:8000/index" -Body $body -ContentType "application/json"
+```
+
+### Elérhető embedding modellek lekérdezése
+
+```powershell
+Invoke-RestMethod -Method Get -Uri "http://localhost:8000/models"
+```
+
+### Projekt aktuális modelljének lekérdezése
+
+```powershell
+$projectPath = "C:\Users\YourName\YourProject"
+Invoke-RestMethod -Method Get -Uri "http://localhost:8000/projects/model?project_path=$projectPath"
+```
+
+### Modell váltása projektre
+
+```powershell
+$projectPath = "C:\Users\YourName\YourProject"
+$body = @{
+    model = "intfloat/multilingual-e5-large"
+    auto_reindex = $true
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post -Uri "http://localhost:8000/projects/model/change?project_path=$projectPath" -Body $body -ContentType "application/json"
 ```
 
 ### Kontextus lekérdezése
@@ -99,12 +151,32 @@ LOG_LEVEL=INFO
 # Maximum token limit
 MAX_CONTEXT_TOKENS=4000
 
-# Embedding modell
-EMBEDDING_MODEL=all-MiniLM-L6-v2
+# Embedding modell (alapértelmezett)
+# Választható modellek:
+# - all-MiniLM-L6-v2 (legkisebb, ~80MB, gyors)
+# - paraphrase-multilingual-MiniLM-L12-v2 (ajánlott, ~120MB)
+# - paraphrase-multilingual-mpnet-base-v2 (nagy, ~1GB, pontosabb)
+# - intfloat/multilingual-e5-large (legnagyobb, ~2.2GB, legpontosabb)
+EMBEDDING_MODEL=paraphrase-multilingual-MiniLM-L12-v2
 
 # Redis cache (opcionális de ajánlott)
 REDIS_URL=redis://redis:6379/0
 ```
+
+## Embedding Modellek
+
+A rendszer 4 különböző embedding modellt támogat projektenként:
+
+| Modell | Méret | Sebesség | Nyelvek | Pontosság | Használat |
+|--------|-------|----------|---------|-----------|-----------|
+| all-MiniLM-L6-v2 | ~80MB | Gyors | EN | Közepes | Kis projektek, angol |
+| paraphrase-multilingual-MiniLM-L12-v2 | ~120MB | Gyors | Multi | Jó | Ajánlott általános használatra |
+| paraphrase-multilingual-mpnet-base-v2 | ~1GB | Lassabb | Multi | Nagyon jó | Nagyobb projektek, pontosság fontos |
+| intfloat/multilingual-e5-large | ~2.2GB | Lassú | Multi | Legjobb | Amikor a maximális pontosság számít |
+
+**Fontos:** Modell váltáskor a projekt indexe törlődik és újraindexelés szükséges!
+
+Részletes információ: [docs/EMBEDDING_MODELS.md](docs/EMBEDDING_MODELS.md)
 
 ## GitHub Copilot Integráció
 

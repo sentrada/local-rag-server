@@ -53,16 +53,31 @@ Start-Process "http://localhost:8000/docs"
 
 ### 5. Első Projekt Indexelése
 
+**Script használata (ajánlott):**
+```powershell
+.\Reindex-Project.ps1 -ProjectPath "C:\Users\YourName\YourProject" -Model "paraphrase-multilingual-MiniLM-L12-v2"
+```
+
+**Vagy API-val közvetlenül:**
 ```powershell
 $body = @{
     project_path = "C:\Users\YourName\YourProject"
     file_extensions = @(".py", ".js", ".ts")
+    model = "paraphrase-multilingual-MiniLM-L12-v2"  # Opcionális
     force_reindex = $false
 } | ConvertTo-Json
 
 Invoke-RestMethod -Method Post -Uri "http://localhost:8000/index" `
     -Body $body -ContentType "application/json"
 ```
+
+**Elérhető modellek:**
+- `all-MiniLM-L6-v2` - Gyors, kis méret (~80MB)
+- `paraphrase-multilingual-MiniLM-L12-v2` - Ajánlott (~120MB) 
+- `paraphrase-multilingual-mpnet-base-v2` - Pontosabb (~1GB)
+- `intfloat/multilingual-e5-large` - Legpontosabb (~2.2GB)
+
+További info: [EMBEDDING_MODELS.md](./EMBEDDING_MODELS.md)
 
 ### 6. Első Lekérdezés
 
